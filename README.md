@@ -1,8 +1,7 @@
 # Temporal Generative Flow Networks for Probabilistic Time Series Forecasting
 
-This repository contains the implementation and experimental setup for the paper "Temporal Generative Flow Networks for Probabilistic Time Series Forecasting: Application to EEG and Health Record Data".
+This repository contains the implementation and experimental setup for the paper "Temporal Generative Flow Networks for Probabilistic Time Series Forecasting".
 
-The project adapts Generative Flow Networks (GFNs) for probabilistic time series forecasting using adaptive quantization and a Straight-Through Estimator (STE) for differentiability. The implementation draws inspiration from existing GFN ([github.com/tgritsaev/gflownet-tlm](https://github.com/tgritsaev/gflownet-tlm)) and Time Series Forecasting ([github.com/amazon-science/chronos-forecasting](https://github.com/amazon-science/chronos-forecasting)) repositories.
 
 ## Features
 
