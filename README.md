@@ -14,6 +14,82 @@ This repository contains the implementation and experimental setup for the paper
 - Configuration system for managing experiments and hyperparameters.
 - Scripts for training, evaluation, and result plotting.
 
+## Core Methodology
+
+### Forecasting as Trajectory Generation in GFlowNets
+
+Temporal GFlowNets formulate probabilistic time series forecasting as a sequential trajectory generation process. The key components are:
+
+1. **State Space**: A state `s_t` represents the context window (historical data) and any forecasted values generated so far. The model starts with an initial state `s_0` containing only the observed historical context.
+
+2. **Action Space**: Actions represent the next forecasted value. The continuous nature of time series values is discretized through quantization, mapping continuous values to a set of `K` discrete bins.
+
+3. **Trajectory Generation**: A complete forecast trajectory is constructed by sequentially applying actions, where each action corresponds to predicting the next time step. The process repeats until reaching the desired forecast horizon.
+
+4. **Reward Function**: Trajectories are scored using a reward function based on their accuracy against the ground truth. Higher rewards are given to more accurate forecasts. The model learns to sample trajectories with probabilities proportional to their rewards.
+
+### Adaptive Quantization: Balancing Precision and Learning
+
+The model employs an adaptive quantization mechanism that dynamically adjusts the number of quantization bins (K) based on learning progress:
+
+1. **Bin Resolution Trade-off**: A small number of bins (low K) simplifies learning but introduces high quantization error, while a large number of bins (high K) provides precision but can slow learning and hinder exploration.
+
+2. **Adaptive Update Factor**: The model dynamically adapts K using an update factor that considers two components:
+
+   - **Improvement Signal**: Tracks recent reward improvements. Low rewards signal the need for finer discretization.
+   - **Confidence Signal**: Monitors the entropy of forward policy. Low entropy (high confidence) may indicate premature convergence, prompting increases in K to encourage exploration.
+
+3. **Curriculum Learning**: Starting with coarse discretization (small K) and progressively refining it creates a natural curriculum. The model learns general patterns first, then refines details as training progresses.
+
+This adaptive mechanism is governed by the formula:
+
+```
+η_e = 1 + λ * (max(0, ε - ΔR_e)/ε + (1 - H_e))
+K_e = min(K_max, K_{e-1} * η_e)
+```
+
+where ΔR_e is reward improvement, H_e is normalized entropy, and λ controls adaptation sensitivity.
+
+### Straight-Through Estimator (STE) for Differentiability
+
+To handle the non-differentiable operation of discretization while maintaining end-to-end training:
+
+1. **Forward Pass**: The model uses discrete bin indices (hard samples) for state transitions, necessary for valid trajectory construction.
+
+2. **Backward Pass**: Gradients flow through a continuous approximation (soft samples), bypassing the non-differentiable argmax operation.
+
+3. **Dual Representation**: The model generates:
+   - **Hard samples** `a_hard = argmax_k P_F(a_k|s_t)` for state transitions
+   - **Soft samples** `a_soft = Σ q_k*P_F(a_k|s_t)` for gradient computation
+
+This STE mechanism maintains the integrity of the discrete state transitions while enabling end-to-end training with gradient descent.
+
+### Trajectory Balance Loss and Exploration-Exploitation
+
+The model uses Trajectory Balance Loss to train the GFlowNet:
+
+1. **Flow Matching**: The TB loss ensures consistency between forward and backward flows:
+
+   ```
+   L_TB(τ) = (log Z + log P_F(τ) - log P_B(τ|x) - log R(τ))²
+   ```
+
+   where Z is the partition function, P_F is the forward policy, P_B is the backward policy, and R is the reward.
+
+2. **Entropy Regularization**: To balance exploration and exploitation, the loss is augmented with an entropy term:
+
+   ```
+   L = L_TB - λ_entropy * H(P_F)
+   ```
+
+   Higher λ_entropy values encourage exploration of diverse trajectories, while lower values focus on exploiting high-reward trajectories.
+
+3. **Backward Policy Options**:
+   - **Uniform Policy**: Assumes all valid predecessor states are equally likely (parameter-free).
+   - **Learned Policy**: Uses a neural network to model the backward transition probabilities, potentially capturing more complex dependencies.
+
+This formulation allows the model to generate diverse, probabilistically coherent forecasts that account for the uncertainty inherent in time series prediction.
+
 ## Setup
 
 ### Quick Setup (Recommended)
