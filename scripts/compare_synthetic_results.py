@@ -17,17 +17,19 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Union
+from matplotlib.ticker import MaxNLocator
 
 def parse_arguments():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description='Plot comparison of synthetic results')
-    parser.add_argument('--results_dir', type=str, default='results/synthetic_data',
-                        help='Directory containing the experiment results')
+    parser = argparse.ArgumentParser(description='Compare results from synthetic data experiments')
+    parser.add_argument('--results_dirs', nargs='+', type=str, 
+                        default=['results/synthetic_data', 'results/synthetic_data_full'],
+                        help='Directories containing experiment results')
     parser.add_argument('--output_dir', type=str, default='results/synthetic_plots',
-                        help='Directory to save the plots')
-    parser.add_argument('--metrics', type=str, nargs='+', default=['wql', 'crps', 'mase'],
-                        help='Metrics to plot')
-    parser.add_argument('--figsize', type=int, nargs=2, default=[10, 6],
+                        help='Directory to save plots')
+    parser.add_argument('--metrics', nargs='+', default=['wql', 'crps', 'mase'],
+                        help='Metrics to plot (default: wql crps mase)')
+    parser.add_argument('--figsize', nargs=2, type=int, default=[10, 6],
                         help='Figure size (width, height)')
     parser.add_argument('--dpi', type=int, default=300,
                         help='DPI for saved figures')
@@ -36,14 +38,18 @@ def parse_arguments():
 
 def find_experiment_dirs(results_dir: str) -> List[str]:
     """Find all experiment directories in the results directory."""
-    return [d for d in os.listdir(results_dir) 
-            if os.path.isdir(os.path.join(results_dir, d))]
+    if not os.path.exists(results_dir):
+        raise ValueError(f"Results directory {results_dir} does not exist")
+    
+    exp_dirs = [d for d in os.listdir(results_dir) 
+                if os.path.isdir(os.path.join(results_dir, d))]
+    return exp_dirs
 
 def load_metrics(experiment_dir: str) -> Dict:
     """Load metrics from a single experiment directory."""
     metrics_path = os.path.join(experiment_dir, 'evaluation', 'metrics.json')
     if not os.path.exists(metrics_path):
-        print(f"Warning: No metrics file found at {metrics_path}")
+        print(f"Warning: No metrics found in {experiment_dir}")
         return None
     
     with open(metrics_path, 'r') as f:
@@ -51,203 +57,321 @@ def load_metrics(experiment_dir: str) -> Dict:
     
     return metrics
 
-def get_experiment_label(exp_name: str) -> str:
+def get_experiment_label(exp_name: str, dataset_name: str = "") -> str:
     """Generate a readable label for the experiment."""
-    components = exp_name.split('_')
-    if 'fixed' in exp_name:
-        return f"Fixed k={components[-1]}"
-    elif 'adaptive' in exp_name:
-        return f"Adaptive k={components[-1]}"
-    elif 'learned' in exp_name:
-        return "Learned Policy"
-    else:
-        return exp_name
-
-def load_all_metrics(results_dir: str) -> pd.DataFrame:
-    """Load metrics from all experiments into a DataFrame."""
-    exp_dirs = find_experiment_dirs(results_dir)
+    # Parse the experiment name to extract configuration
+    parts = exp_name.split('_')
     
-    all_metrics = []
-    for exp_dir in exp_dirs:
-        full_path = os.path.join(results_dir, exp_dir)
-        metrics = load_metrics(full_path)
-        
-        if metrics is None:
+    prefix = f"{dataset_name} " if dataset_name else ""
+    
+    if 'learned' in exp_name and 'policy' in exp_name:
+        return f"{prefix}Learned Policy"
+    
+    if len(parts) >= 2 and parts[0] in ['fixed', 'adaptive']:
+        quantization = parts[0].capitalize()
+        k_value = parts[1].replace('k', 'K=')
+        return f"{prefix}{quantization} {k_value}"
+    
+    return f"{prefix}{exp_name}"
+
+def load_all_metrics(results_dirs: List[str]) -> pd.DataFrame:
+    """Load metrics from all experiments into a DataFrame."""
+    data = []
+    
+    for results_dir in results_dirs:
+        if not os.path.exists(results_dir):
+            print(f"Warning: Results directory {results_dir} does not exist")
             continue
+            
+        # Extract dataset name from directory path
+        dataset_name = os.path.basename(results_dir).replace('_', ' ').title()
         
-        # Extract experiment information
-        exp_label = get_experiment_label(exp_dir)
+        exp_dirs = find_experiment_dirs(results_dir)
         
-        # Extract overall metrics
-        row = {
-            'experiment': exp_dir,
-            'label': exp_label
-        }
-        
-        # Add overall metrics
-        for metric, value in metrics['overall'].items():
-            row[metric] = value
-        
-        # Add metadata if available
-        if 'metadata' in metrics and 'config' in metrics['metadata']:
-            for key, value in metrics['metadata']['config'].items():
-                row[f"config_{key}"] = value
-        
-        all_metrics.append(row)
+        for exp_dir in exp_dirs:
+            full_path = os.path.join(results_dir, exp_dir)
+            metrics = load_metrics(full_path)
+            
+            if metrics is None:
+                continue
+            
+            # Extract configuration from metadata if available
+            config = metrics.get('metadata', {}).get('config', {})
+            if not config:
+                # Try to parse from directory name
+                config = {
+                    'quantization': 'learned' if 'learned' in exp_dir else 
+                               ('fixed' if 'fixed' in exp_dir else 'adaptive'),
+                    'k': int(exp_dir.split('k')[-1]) if 'k' in exp_dir else None,
+                    'policy_type': 'learned' if 'learned' in exp_dir else 'uniform'
+                }
+            
+            row = {
+                'experiment': exp_dir,
+                'dataset': dataset_name,
+                'label': get_experiment_label(exp_dir, dataset_name),
+                'quantization': config.get('quantization', ''),
+                'k': config.get('k', ''),
+                'policy_type': config.get('policy_type', ''),
+                'entropy_bonus': config.get('entropy_bonus', '')
+            }
+            
+            # Add overall metrics
+            for metric, value in metrics.get('overall', {}).items():
+                row[f'{metric}'] = value
+            
+            data.append(row)
     
     # Convert to DataFrame
-    df = pd.DataFrame(all_metrics)
-    
+    df = pd.DataFrame(data)
     return df
 
 def plot_overall_metrics(df: pd.DataFrame, metrics: List[str], 
                          figsize: Tuple[int, int], output_dir: str, dpi: int = 300):
     """Plot overall metrics comparison."""
-    # Set up the figure
-    fig, axes = plt.subplots(1, len(metrics), figsize=figsize)
-    if len(metrics) == 1:
-        axes = [axes]
+    plt.figure(figsize=tuple(figsize))
     
-    # Sort by experiment label
-    df = df.sort_values('label')
-    
-    # Plot each metric
     for i, metric in enumerate(metrics):
-        if metric not in df.columns:
-            print(f"Warning: Metric {metric} not found in results")
-            continue
+        plt.subplot(1, len(metrics), i+1)
         
-        ax = axes[i]
-        sns.barplot(x='label', y=metric, data=df, ax=ax)
-        ax.set_title(f'Overall {metric.upper()}')
-        ax.set_xlabel('')
-        ax.set_ylabel(metric.upper())
-        ax.tick_params(axis='x', rotation=45)
+        # Sort by metric value (ascending)
+        sorted_df = df.sort_values(by=metric)
+        
+        # Create bar plot
+        sns.barplot(x='label', y=metric, data=sorted_df)
+        
+        plt.title(f'{metric.upper()} Comparison')
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
     
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'overall_metrics.png'), dpi=dpi)
+    # Save figure
+    plt.savefig(os.path.join(output_dir, 'overall_metrics_comparison.png'), dpi=dpi, bbox_inches='tight')
     plt.close()
 
-def plot_per_horizon_metrics(results_dir: str, exp_dirs: List[str], metrics: List[str],
-                             figsize: Tuple[int, int], output_dir: str, dpi: int = 300):
-    """Plot per-horizon metrics for all experiments."""
-    # Set up the figure
-    fig, axes = plt.subplots(len(metrics), 1, figsize=figsize)
-    if len(metrics) == 1:
-        axes = [axes]
+def plot_dataset_comparison(df: pd.DataFrame, metrics: List[str], 
+                          figsize: Tuple[int, int], output_dir: str, dpi: int = 300):
+    """Plot comparison between datasets for the same experiment types."""
+    if 'dataset' not in df.columns or df['dataset'].nunique() <= 1:
+        return
     
-    # Load and plot data for each experiment
-    for exp_dir in exp_dirs:
-        full_path = os.path.join(results_dir, exp_dir)
-        metrics_data = load_metrics(full_path)
+    # Get the different experiment types
+    exp_types = []
+    for _, row in df.iterrows():
+        exp_type = f"{row['quantization']}_{row['k']}" if row['quantization'] != 'learned' else "learned_policy"
+        if exp_type not in exp_types:
+            exp_types.append(exp_type)
+    
+    for metric in metrics:
+        plt.figure(figsize=tuple(figsize))
         
-        if metrics_data is None or 'per_horizon' not in metrics_data:
+        # Create a dataframe with experiment types and their metrics for each dataset
+        pivot_df = df.pivot_table(
+            index='dataset',
+            columns='experiment',
+            values=metric
+        )
+        
+        # Plot grouped bar chart
+        pivot_df.plot(kind='bar', ax=plt.gca())
+        
+        plt.title(f'{metric.upper()} Comparison Across Datasets')
+        plt.xlabel('Dataset')
+        plt.ylabel(metric.upper())
+        plt.legend(title='Experiment', loc='upper right')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        
+        # Save figure
+        plt.savefig(os.path.join(output_dir, f'dataset_comparison_{metric}.png'), dpi=dpi, bbox_inches='tight')
+        plt.close()
+
+def plot_per_horizon_metrics(results_dirs: List[str], metrics: List[str], 
+                             figsize: Tuple[int, int], output_dir: str, dpi: int = 300):
+    """Plot per-horizon metrics for all experiments across all datasets."""
+    # Create a flattened list of (dataset_name, results_dir, exp_dir) tuples
+    all_experiments = []
+    for results_dir in results_dirs:
+        if not os.path.exists(results_dir):
             continue
+            
+        dataset_name = os.path.basename(results_dir).replace('_', ' ').title()
+        exp_dirs = find_experiment_dirs(results_dir)
         
-        exp_label = get_experiment_label(exp_dir)
+        for exp_dir in exp_dirs:
+            all_experiments.append((dataset_name, results_dir, exp_dir))
+    
+    for metric in metrics:
+        plt.figure(figsize=tuple(figsize))
         
-        # Plot each metric
-        for i, metric in enumerate(metrics):
+        for dataset_name, results_dir, exp_dir in all_experiments:
+            full_path = os.path.join(results_dir, exp_dir)
+            metrics_data = load_metrics(full_path)
+            
+            if metrics_data is None or 'per_horizon' not in metrics_data:
+                continue
+            
             if metric not in metrics_data['per_horizon']:
                 continue
             
-            horizons = range(1, len(metrics_data['per_horizon'][metric]) + 1)
-            axes[i].plot(horizons, metrics_data['per_horizon'][metric], 
-                         marker='o', label=exp_label)
-            axes[i].set_title(f'{metric.upper()} by Forecast Horizon')
-            axes[i].set_xlabel('Forecast Horizon')
-            axes[i].set_ylabel(metric.upper())
-            axes[i].legend()
-            axes[i].grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'per_horizon_metrics.png'), dpi=dpi)
-    plt.close()
+            horizon_values = metrics_data['per_horizon'][metric]
+            horizons = range(1, len(horizon_values) + 1)
+            
+            plt.plot(horizons, horizon_values, marker='o', 
+                     label=get_experiment_label(exp_dir, dataset_name))
+        
+        plt.title(f'{metric.upper()} by Forecast Horizon')
+        plt.xlabel('Horizon')
+        plt.ylabel(metric.upper())
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
+        plt.legend(fontsize='small')
+        plt.tight_layout()
+        
+        # Save figure
+        plt.savefig(os.path.join(output_dir, f'per_horizon_{metric}.png'), dpi=dpi, bbox_inches='tight')
+        plt.close()
 
-def plot_per_series_metrics(results_dir: str, exp_dirs: List[str], metrics: List[str],
+def plot_per_series_metrics(results_dirs: List[str], metrics: List[str], 
                            figsize: Tuple[int, int], output_dir: str, dpi: int = 300):
-    """Plot per-series metrics distributions for all experiments."""
-    # Set up the figure
-    fig, axes = plt.subplots(len(metrics), 1, figsize=figsize)
-    if len(metrics) == 1:
-        axes = [axes]
-    
-    # Prepare data for boxplots
-    boxplot_data = {metric: [] for metric in metrics}
-    labels = []
-    
-    # Load data for each experiment
-    for exp_dir in exp_dirs:
-        full_path = os.path.join(results_dir, exp_dir)
-        metrics_data = load_metrics(full_path)
-        
-        if metrics_data is None or 'per_series' not in metrics_data:
+    """Plot per-series metrics distribution using box plots."""
+    # Create a flattened list of (dataset_name, results_dir, exp_dir) tuples
+    all_experiments = []
+    for results_dir in results_dirs:
+        if not os.path.exists(results_dir):
             continue
+            
+        dataset_name = os.path.basename(results_dir).replace('_', ' ').title()
+        exp_dirs = find_experiment_dirs(results_dir)
         
-        exp_label = get_experiment_label(exp_dir)
-        labels.append(exp_label)
+        for exp_dir in exp_dirs:
+            all_experiments.append((dataset_name, results_dir, exp_dir))
+    
+    for metric in metrics:
+        plt.figure(figsize=tuple(figsize))
         
-        # Collect data for each metric
-        for metric in metrics:
+        series_data = []
+        labels = []
+        
+        for dataset_name, results_dir, exp_dir in all_experiments:
+            full_path = os.path.join(results_dir, exp_dir)
+            metrics_data = load_metrics(full_path)
+            
+            if metrics_data is None or 'per_series' not in metrics_data:
+                continue
+            
             if metric not in metrics_data['per_series']:
-                boxplot_data[metric].append([])
-            else:
-                boxplot_data[metric].append(metrics_data['per_series'][metric])
-    
-    # Plot each metric
-    for i, metric in enumerate(metrics):
-        ax = axes[i]
+                continue
+            
+            series_values = metrics_data['per_series'][metric]
+            series_data.append(series_values)
+            labels.append(get_experiment_label(exp_dir, dataset_name))
         
-        # Check if we have data to plot
-        if not any(boxplot_data[metric]):
+        # Create box plot
+        plt.boxplot(series_data, labels=labels)
+        plt.title(f'{metric.upper()} Distribution Across Series')
+        plt.ylabel(metric.upper())
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        
+        # Save figure
+        plt.savefig(os.path.join(output_dir, f'per_series_{metric}_boxplot.png'), dpi=dpi, bbox_inches='tight')
+        plt.close()
+
+def plot_improvement_heatmap(df: pd.DataFrame, metrics: List[str], 
+                          figsize: Tuple[int, int], output_dir: str, dpi: int = 300):
+    """Plot heatmap showing improvement between datasets for each experiment type."""
+    if 'dataset' not in df.columns or df['dataset'].nunique() <= 1:
+        return
+    
+    datasets = sorted(df['dataset'].unique())
+    if len(datasets) != 2:
+        return  # This visualization is designed for comparing exactly 2 datasets
+    
+    base_dataset, compare_dataset = datasets
+    
+    # Create a mapping from experiment to its type
+    exp_to_type = {}
+    for _, row in df.iterrows():
+        exp_type = f"{row['quantization']}_{row['k']}" if row['quantization'] != 'learned' else "learned_policy"
+        exp_to_type[row['experiment']] = exp_type
+    
+    # Get unique experiment types
+    exp_types = sorted(set(exp_to_type.values()))
+    
+    for metric in metrics:
+        # Create a dataframe for the heatmap
+        improvements = {}
+        
+        for exp_type in exp_types:
+            # Find matching experiments in both datasets
+            base_rows = df[(df['dataset'] == base_dataset) & (df['experiment'].apply(lambda x: exp_to_type.get(x) == exp_type))]
+            compare_rows = df[(df['dataset'] == compare_dataset) & (df['experiment'].apply(lambda x: exp_to_type.get(x) == exp_type))]
+            
+            if len(base_rows) == 0 or len(compare_rows) == 0:
+                continue
+                
+            base_value = base_rows[metric].values[0]
+            compare_value = compare_rows[metric].values[0]
+            
+            # Calculate relative improvement (negative is better for these metrics)
+            improvement = (base_value - compare_value) / base_value * 100
+            improvements[exp_type] = improvement
+        
+        if not improvements:
             continue
+            
+        # Create the heatmap
+        plt.figure(figsize=tuple(figsize))
         
-        # Create boxplot
-        ax.boxplot(boxplot_data[metric], labels=labels)
-        ax.set_title(f'{metric.upper()} Distribution Across Series')
-        ax.set_xlabel('Experiment')
-        ax.set_ylabel(metric.upper())
-        ax.tick_params(axis='x', rotation=45)
-        ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'per_series_metrics.png'), dpi=dpi)
-    plt.close()
+        # Convert to dataframe for seaborn
+        improvement_df = pd.DataFrame({
+            'Experiment Type': list(improvements.keys()),
+            'Improvement (%)': list(improvements.values())
+        })
+        
+        # Reshape for heatmap
+        heatmap_data = improvement_df.set_index('Experiment Type')['Improvement (%)'].to_frame().T
+        
+        # Plot heatmap
+        ax = sns.heatmap(heatmap_data, annot=True, cmap='RdYlGn', fmt='.1f', 
+                         center=0, cbar_kws={'label': 'Improvement (%)'})
+        
+        plt.title(f'{metric.upper()} Improvement: {compare_dataset} vs {base_dataset}')
+        plt.tight_layout()
+        
+        # Save figure
+        plt.savefig(os.path.join(output_dir, f'improvement_{metric}_heatmap.png'), dpi=dpi, bbox_inches='tight')
+        plt.close()
 
 def plot_config_comparison(df: pd.DataFrame, metrics: List[str], 
                           figsize: Tuple[int, int], output_dir: str, dpi: int = 300):
     """Plot metrics grouped by configuration parameters."""
-    # Check if we have configuration data
-    config_cols = [col for col in df.columns if col.startswith('config_')]
-    
-    if not config_cols:
-        return
-    
-    # Plot for each configuration parameter
-    for config_param in config_cols:
-        param_name = config_param.replace('config_', '')
-        
-        # Skip if parameter has only one value
-        if df[config_param].nunique() <= 1:
-            continue
-        
-        fig, axes = plt.subplots(1, len(metrics), figsize=figsize)
-        if len(metrics) == 1:
-            axes = [axes]
+    if 'quantization' in df.columns and 'k' in df.columns:
+        # Group by quantization type and k value
+        plt.figure(figsize=tuple(figsize))
         
         for i, metric in enumerate(metrics):
-            if metric not in df.columns:
-                continue
+            plt.subplot(1, len(metrics), i+1)
             
-            ax = axes[i]
-            sns.barplot(x=config_param, y=metric, data=df, ax=ax)
-            ax.set_title(f'{metric.upper()} by {param_name}')
-            ax.set_xlabel(param_name)
-            ax.set_ylabel(metric.upper())
-            ax.tick_params(axis='x', rotation=45)
+            # Create grouped bar plot
+            grouped_df = df.pivot_table(
+                index=['quantization', 'dataset'], 
+                columns='k', 
+                values=metric,
+                aggfunc='mean'
+            )
+            
+            grouped_df.plot(kind='bar', ax=plt.gca())
+            
+            plt.title(f'{metric.upper()} by Configuration')
+            plt.ylabel(metric.upper())
+            plt.legend(title='K Value')
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.tight_layout()
         
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, f'comparison_by_{param_name}.png'), dpi=dpi)
+        # Save figure
+        plt.savefig(os.path.join(output_dir, 'config_comparison.png'), dpi=dpi, bbox_inches='tight')
         plt.close()
 
 def main():
@@ -256,29 +380,30 @@ def main():
     # Create output directory if it doesn't exist
     os.makedirs(args.output_dir, exist_ok=True)
     
-    # Load all metrics
-    df = load_all_metrics(args.results_dir)
+    # Load metrics from all experiments
+    df = load_all_metrics(args.results_dirs)
     
     if df.empty:
-        print(f"No metrics found in {args.results_dir}")
+        print(f"No metrics found in {args.results_dirs}")
         return
     
-    # Get experiment directories
-    exp_dirs = find_experiment_dirs(args.results_dir)
+    # Plot overall metrics
+    plot_overall_metrics(df, args.metrics, args.figsize, args.output_dir, args.dpi)
     
-    # Plot overall metrics comparison
-    plot_overall_metrics(df, args.metrics, tuple(args.figsize), args.output_dir, args.dpi)
+    # Plot dataset comparison
+    plot_dataset_comparison(df, args.metrics, args.figsize, args.output_dir, args.dpi)
     
     # Plot per-horizon metrics
-    plot_per_horizon_metrics(args.results_dir, exp_dirs, args.metrics, 
-                            tuple(args.figsize), args.output_dir, args.dpi)
+    plot_per_horizon_metrics(args.results_dirs, args.metrics, args.figsize, args.output_dir, args.dpi)
     
     # Plot per-series metrics
-    plot_per_series_metrics(args.results_dir, exp_dirs, args.metrics,
-                           tuple(args.figsize), args.output_dir, args.dpi)
+    plot_per_series_metrics(args.results_dirs, args.metrics, args.figsize, args.output_dir, args.dpi)
     
-    # Plot configuration comparisons
-    plot_config_comparison(df, args.metrics, tuple(args.figsize), args.output_dir, args.dpi)
+    # Plot improvement heatmap
+    plot_improvement_heatmap(df, args.metrics, args.figsize, args.output_dir, args.dpi)
+    
+    # Plot configuration comparison
+    plot_config_comparison(df, args.metrics, args.figsize, args.output_dir, args.dpi)
     
     print(f"Plots saved to {args.output_dir}")
 

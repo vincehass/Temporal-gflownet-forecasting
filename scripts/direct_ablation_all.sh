@@ -74,16 +74,17 @@ update_visualizations() {
     PLOTS_DIR="${BASE_RESULTS_DIR}_plots"
     mkdir -p "$PLOTS_DIR"
     
-    echo "Updating visualization plots..."
+    echo "Updating visualization plots using W&B..."
     
-    # Run the visualization script
-    python scripts/plot_ablation_results.py \
+    # Run the new W&B visualization script
+    python scripts/visualize_wandb_ablations.py \
         --study_type quantization \
         --results_dir "$BASE_RESULTS_DIR" \
         --output_dir "$PLOTS_DIR" \
-        --plot_training_curves
+        --wandb_project "$WANDB_PROJECT" \
+        --wandb_entity "$WANDB_ENTITY"
     
-    echo "Plots updated in: $PLOTS_DIR"
+    echo "W&B visualizations updated! Check the dashboard at: https://wandb.ai/$WANDB_ENTITY/$WANDB_PROJECT"
 }
 
 # Track successful/failed experiments
