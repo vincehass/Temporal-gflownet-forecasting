@@ -1,0 +1,16 @@
+- dataset=eeg_config
+- model=transformer_config
+- quantization=adaptive_config
+- quantization.k_initial=10
+- quantization.adaptive=true
+- policy=uniform_config
+- policy.backward_policy_type=uniform
+- training.epochs=50
+- training.batch_size=32
+- gfn.lambda_entropy=0.01
+- use_wandb=true
+- wandb_entity=nadhirvincenthassen
+- wandb_project=temporal-gfn-forecasting
+- wandb_name=eeg_adaptive_k10_uniform
+- wandb_mode=online
+- results_dir=results/eeg_adaptive_k10_uniform

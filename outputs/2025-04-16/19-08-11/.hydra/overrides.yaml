@@ -1,0 +1,4 @@
+- dataset=eeg_config
+- quantization=adaptive_config
+- training.epochs=5
+- wandb_project=temporal-gfn-forecasting

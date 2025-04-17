@@ -1,0 +1,9 @@
+- dataset=synthetic_config
+- quantization=adaptive_config
+- quantization.k_initial=10
+- policy=uniform_config
+- training.epochs=20
+- training.batch_size=64
+- gfn.lambda_entropy=0.01
+- use_wandb=true
+- results_dir=results/demo_direct_run

@@ -1,0 +1,12 @@
+# Adaptive quantization configuration
+
+# Override base quantization config
+adaptive: true
+k_initial: 10
+k_max: 100
+vmin: -10.0
+vmax: 10.0
+lambda_adapt: 0.9
+epsilon_adapt: 0.02
+delta_adapt: 5
+update_interval: 1000

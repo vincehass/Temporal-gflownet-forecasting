@@ -1,0 +1,2 @@
+# Defaults config for dataset group
+_target_: dataset.eeg_config

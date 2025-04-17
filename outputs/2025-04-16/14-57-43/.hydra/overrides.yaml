@@ -1,0 +1,8 @@
+- results_dir=results/wandb_test/adaptive_k20
+- training.epochs=1
+- training.batch_size=32
+- training.learning_rate=0.001
+- quantization=adaptive_config
+- quantization.k_initial=20
+- quantization.k_max=40
+- dataset=synthetic_config

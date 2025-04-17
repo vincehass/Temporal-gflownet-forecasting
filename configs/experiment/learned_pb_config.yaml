@@ -1,0 +1,11 @@
+# Learned backward policy configuration
+# Used for ablation study to compare with uniform backward policy
+
+# Use learned backward policy
+policy:
+  backward_policy_type: learned # Use learned backward policy
+  rand_action_prob: 0.01 # Keep same random action probability
+
+# Logging path
+logging:
+  results_dir: ./results/learned_pb/ # Directory to save results

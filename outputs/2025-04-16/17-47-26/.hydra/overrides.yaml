@@ -1,0 +1,8 @@
+- dataset=eeg_config
+- quantization.k_initial=20
+- quantization.adaptive=true
+- policy.backward_policy_type=uniform
+- training.epochs=3
+- training.batch_size=32
+- gfn.lambda_entropy=0.01
+- results_dir=results/eeg_experiments/ablation_quant_adaptive_k20

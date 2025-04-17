@@ -172,3 +172,109 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment and package managers
+venv/
+env/
+ENV/
+.env
+.venv
+env.bak/
+venv.bak/
+.python-version
+pip-log.txt
+pip-delete-this-directory.txt
+.conda/
+conda-env/
+
+# Logs and output files
+logs/
+*.log
+log.txt
+results/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Weights & Biases
+wandb/
+*.wandb
+artifacts/
+
+# Data
+data/
+datasets/
+*.csv
+*.json
+*.h5
+*.npz
+*.npy
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.spyderproject
+.spyproject
+.ropeproject
+.DS_Store
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# TensorBoard
+tensorboard/
+runs/
+events.out.tfevents.*
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.hypothesis/
+
+# Compiled files
+*.class
+*.dll
+*.exe
+*.o
+*.so
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

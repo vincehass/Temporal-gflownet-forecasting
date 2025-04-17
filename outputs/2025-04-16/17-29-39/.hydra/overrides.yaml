@@ -1,0 +1,8 @@
+- dataset=eeg_config
+- quantization=adaptive_config
+- quantization.k_initial=10
+- policy=uniform_config
+- gfn.lambda_entropy=0.01
+- training.epochs=5
+- training.learning_rate=0.001
+- ++results_dir=results/eeg_from_readme

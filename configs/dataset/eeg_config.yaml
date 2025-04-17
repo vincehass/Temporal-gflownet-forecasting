@@ -1,0 +1,16 @@
+# EEG dataset configuration
+
+# Override base dataset config
+type: eeg
+context_length: 96
+prediction_horizon: 24
+scaler_type: mean
+stride: 1
+sample_stride: 5
+return_indices: true
+
+# EEG specific parameters with absolute paths
+path: ${hydra:runtime.cwd}/datasets/eeg/eeg_data.npy
+train_path: ${hydra:runtime.cwd}/datasets/eeg/eeg_train.npy
+val_path: ${hydra:runtime.cwd}/datasets/eeg/eeg_val.npy
+test_path: ${hydra:runtime.cwd}/datasets/eeg/eeg_test.npy

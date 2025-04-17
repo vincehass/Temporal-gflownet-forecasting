@@ -1,0 +1,12 @@
+- results_dir=results/wandb_test/learned_policy
+- training.epochs=2
+- training.batch_size=32
+- quantization=adaptive_config
+- quantization.k_initial=10
+- quantization.k_max=50
+- policy=learned_config
+- dataset=synthetic_config
+- use_wandb=true
+- wandb_project=temporal-gfn-forecasting
+- wandb_entity=nadhirvincenthassen
+- +wandb_name=learned_policy

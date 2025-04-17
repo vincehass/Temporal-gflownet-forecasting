@@ -1,0 +1,9 @@
+# Transformer model configuration
+
+# Override base model config
+d_model: 256
+nhead: 8
+d_hid: 512
+nlayers: 4
+dropout: 0.1
+uniform_init: true

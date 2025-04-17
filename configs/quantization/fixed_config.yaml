@@ -1,0 +1,6 @@
+# Fixed quantization configuration
+
+adaptive: false
+k_initial: 10
+vmin: -10.0
+vmax: 10.0

@@ -1,0 +1,19 @@
+# Hydra configuration defaults list
+
+defaults:
+  - _self_
+  - dataset: eeg_config
+  - model: transformer_config
+  - quantization: adaptive_config
+  - policy: uniform_config
+  - training: base_config
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+
+# Hydra configuration
+hydra:
+  run:
+    dir: ${results_dir}
+  sweep:
+    dir: ${results_dir}
+    subdir: ${hydra.job.num}

@@ -1,0 +1,4 @@
+- dataset=eeg_config
+- quantization=adaptive_config
+- quantization.k_initial=10
+- training.epochs=20

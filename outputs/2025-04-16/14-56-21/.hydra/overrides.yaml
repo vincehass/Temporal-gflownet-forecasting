@@ -1,0 +1,11 @@
+- results_dir=results/wandb_test/adaptive_k10
+- training.epochs=2
+- training.batch_size=32
+- quantization=adaptive_config
+- quantization.k_initial=10
+- quantization.k_max=20
+- dataset=synthetic_config
+- use_wandb=true
+- wandb_project=temporal-gfn-forecasting
+- wandb_entity=nadhirvincenthassen
+- +wandb_name=adaptive_k10

@@ -1,0 +1,103 @@
+# Base configuration for Temporal GFN model
+
+# Set defaults list for Hydra
+defaults:
+  - _self_
+  - dataset: eeg_config
+  - model: transformer_config
+  - quantization: adaptive_config
+  - policy: uniform_config
+  - training: base_config
+
+# Model configuration
+model:
+  d_model: 256 # Dimension of the model
+  nhead: 8 # Number of attention heads
+  d_hid: 512 # Dimension of the feedforward network
+  nlayers: 4 # Number of transformer layers
+  dropout: 0.1 # Dropout probability
+  uniform_init: true # Whether to use uniform initialization for output layers
+
+# GFN configuration
+gfn:
+  Z_init: 0.0 # Initial value for log(Z)
+  Z_lr: 0.01 # Learning rate for Z updates
+  lambda_entropy: 0.01 # Entropy bonus coefficient
+
+# Quantization configuration
+quantization:
+  adaptive: true # Whether to use adaptive quantization
+  k_initial: 10 # Initial number of quantization bins
+  k_max: 100 # Maximum number of quantization bins
+  vmin: -10.0 # Minimum value for quantization range
+  vmax: 10.0 # Maximum value for quantization range
+  lambda_adapt: 0.9 # Weight for the exponential moving average
+  epsilon_adapt: 0.02 # Threshold for triggering adaptation
+  delta_adapt: 5 # Number of bins to add when adapting
+  update_interval: 1000 # Number of steps between adaptation checks
+
+# Policy configuration
+policy:
+  backward_policy_type: uniform # Type of backward policy: 'uniform' or 'learned'
+  rand_action_prob: 0.01 # Probability of taking a random action for exploration
+
+# Dataset configuration
+dataset:
+  type: eeg # Changed from 'synthetic' to 'eeg'
+  context_length: 96 # Length of the context window (T)
+  prediction_horizon: 24 # Number of future steps to predict (T_prime)
+  scaler_type: mean # Type of scaler: 'mean', 'minmax', 'standard'
+  stride: 1 # Stride between consecutive windows
+  sample_stride: 5 # Stride for subsampling time series (to reduce window count)
+  return_indices: false # Whether to return window indices
+
+  # Synthetic dataset parameters (only used if type is 'synthetic')
+  num_series: 100 # Number of time series to generate
+  series_length: 200 # Length of each time series
+  model_type: combined # Type of model to generate data from: 'ar', 'sine', 'trend', 'combined'
+  model_params: # Parameters for the synthetic data model
+    phi: 0.9 # AR coefficient
+    period: 20 # Seasonality period
+    amplitude: 1.0 # Amplitude of the seasonal component
+    slope: 0.01 # Slope of the trend component
+  noise_level: 0.1 # Standard deviation of the noise
+
+# Training configuration
+training:
+  epochs: 1 # Number of epochs to train for
+  batch_size: 32 # Batch size
+  learning_rate: 0.001 # Learning rate
+  weight_decay: 0.0001 # Weight decay
+  use_lr_scheduler: true # Whether to use learning rate scheduler
+  grad_clip_norm: 1.0 # Maximum norm of gradients for clipping
+  num_workers: 4 # Number of worker processes for data loading
+
+# Validation configuration
+validation:
+  enabled: true # Whether to perform validation
+
+# Evaluation configuration
+evaluation:
+  batch_size: 32 # Batch size for evaluation
+  num_samples: 100 # Number of samples to generate
+  quantiles: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] # Quantiles for WQL
+  seasonality: 1 # Seasonality period for MASE
+  save_forecasts: false # Whether to save all forecast samples to file
+
+# Logging configuration
+logging:
+  results_dir: ./results/ # Directory to save results
+  log_interval: 100 # Number of steps between logging
+  checkpoint_interval: 5 # Number of epochs between checkpoints
+
+# Default results directory (can be overridden via command line)
+results_dir: ./results/default
+
+# W&B configuration
+use_wandb: true
+wandb_entity: "nadhirvincenthassen"
+wandb_project: "temporal-gfn"
+wandb_name: null
+wandb_mode: "online"
+gpu: 0
+seed: 42

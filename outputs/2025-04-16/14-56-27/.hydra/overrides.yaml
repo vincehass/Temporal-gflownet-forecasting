@@ -1,0 +1,10 @@
+- results_dir=results/wandb_test/fixed_k10
+- training.epochs=2
+- training.batch_size=32
+- quantization=fixed_config
+- quantization.k_initial=10
+- dataset=synthetic_config
+- use_wandb=true
+- wandb_project=temporal-gfn-forecasting
+- wandb_entity=nadhirvincenthassen
+- +wandb_name=fixed_k10

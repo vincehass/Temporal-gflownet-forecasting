@@ -1,0 +1,13 @@
+# Fixed quantization configuration
+# Used for ablation study to compare with adaptive quantization
+
+# Disable adaptive quantization and set a fixed K
+quantization:
+  adaptive: false # Disable adaptive quantization
+  k_initial: 30 # Fixed number of quantization bins
+  vmin: -5.0 # Narrower range for better resolution
+  vmax: 5.0 # Narrower range for better resolution
+
+# Logging path
+logging:
+  results_dir: ./results/fixed_quant/ # Directory to save results

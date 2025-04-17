@@ -1,0 +1,12 @@
+# No entropy bonus configuration
+# Used for ablation study to assess the impact of the entropy bonus
+
+# Set entropy bonus coefficient to 0
+gfn:
+  Z_init: 0.0 # Keep same Z init
+  Z_lr: 0.01 # Keep same Z learning rate
+  lambda_entropy: 0.0 # Disable entropy bonus
+
+# Logging path
+logging:
+  results_dir: ./results/no_entropy/ # Directory to save results

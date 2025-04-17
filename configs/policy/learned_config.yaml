@@ -1,0 +1,4 @@
+# Learned backward policy configuration
+
+backward_policy_type: learned
+rand_action_prob: 0.01
