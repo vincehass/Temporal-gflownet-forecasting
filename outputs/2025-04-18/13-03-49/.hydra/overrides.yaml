@@ -1,0 +1,12 @@
+- dataset=eeg_config
+- model=transformer_config
+- quantization=adaptive_config
+- quantization.k_initial=10
+- quantization.adaptive=true
+- policy=uniform_config
+- policy.backward_policy_type=uniform
+- training.epochs=10
+- training.batch_size=32
+- gfn.lambda_entropy=0.01
+- gpu=0
+- results_dir=results/eeg_direct_ablation/eeg_adaptive_k10_uniform_20250418_130331

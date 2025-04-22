@@ -4,13 +4,62 @@
 
 set -e  # Exit on error
 
-# W&B Configuration
+# Default W&B Configuration
 WANDB_PROJECT="temporal-gfn-forecasting"
 WANDB_ENTITY="nadhirvincenthassen"
+WANDB_NAME="wandb_visualization"
+USE_WANDB=false
 
-# Experiment directories
+# Default directories
 RESULTS_DIR="results/wandb_ablations"
 OUTPUT_DIR="results/wandb_plots"
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --results-dir)
+            RESULTS_DIR="$2"
+            shift 2
+            ;;
+        --output-dir)
+            OUTPUT_DIR="$2"
+            shift 2
+            ;;
+        --wandb-project)
+            WANDB_PROJECT="$2"
+            shift 2
+            ;;
+        --wandb-entity)
+            WANDB_ENTITY="$2"
+            shift 2
+            ;;
+        --wandb-name)
+            WANDB_NAME="$2"
+            shift 2
+            ;;
+        --use-wandb)
+            USE_WANDB=true
+            shift
+            ;;
+        --help)
+            echo "Usage: $0 [options]"
+            echo "Options:"
+            echo "  --results-dir VALUE     Directory containing experiment results (default: results/wandb_ablations)"
+            echo "  --output-dir VALUE      Directory to store visualization outputs (default: results/wandb_plots)"
+            echo "  --wandb-project VALUE   W&B project name (default: temporal-gfn-forecasting)"
+            echo "  --wandb-entity VALUE    W&B entity name (default: nadhirvincenthassen)"
+            echo "  --wandb-name VALUE      W&B run name for visualizations (default: wandb_visualization)"
+            echo "  --use-wandb             Enable logging visualization runs to W&B"
+            echo "  --help                  Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information."
+            exit 1
+            ;;
+    esac
+done
 
 # Print header
 echo "===================================================================="
@@ -20,6 +69,7 @@ echo "W&B Project: $WANDB_PROJECT"
 echo "W&B Entity: $WANDB_ENTITY"
 echo "Results Directory: $RESULTS_DIR"
 echo "Output Directory: $OUTPUT_DIR"
+echo "Logging to W&B: $([ "$USE_WANDB" = true ] && echo "Enabled" || echo "Disabled")"
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
@@ -72,17 +122,36 @@ run_script python scripts/visualize_wandb_ablations.py \
     --wandb_project "$WANDB_PROJECT" \
     --wandb_entity "$WANDB_ENTITY"
 
-# Generate forecast comparison plots
-echo "===================================================================="
-echo "Generating forecast comparison plots"
-echo "===================================================================="
+# Find key experiment directories for forecast comparison
+echo "Looking for experiment directories for forecast comparison..."
 
-forecast_output_dir="$OUTPUT_DIR/forecast_comparison"
-mkdir -p "$forecast_output_dir"
+# Try to find representative experiment directories
+FIXED_EXP=$(find "$RESULTS_DIR" -type d -name "*fixed_k10*uniform*" | head -n 1)
+ADAPTIVE_EXP=$(find "$RESULTS_DIR" -type d -name "*adaptive_k10*uniform*" | head -n 1)
+LEARNED_EXP=$(find "$RESULTS_DIR" -type d -name "*adaptive_k10*learned*" | head -n 1)
 
-run_script python scripts/compare_forecasts.py \
-    --results_dirs "$RESULTS_DIR/fixed_k10" "$RESULTS_DIR/adaptive_k10" "$RESULTS_DIR/learned_policy" \
-    --output_dir "$forecast_output_dir"
+# Only proceed if we found all three experiment types
+if [ -n "$FIXED_EXP" ] && [ -n "$ADAPTIVE_EXP" ] && [ -n "$LEARNED_EXP" ]; then
+    # Generate forecast comparison plots
+    echo "===================================================================="
+    echo "Generating forecast comparison plots"
+    echo "===================================================================="
+    
+    forecast_output_dir="$OUTPUT_DIR/forecast_comparison"
+    mkdir -p "$forecast_output_dir"
+    
+    run_script python scripts/compare_forecasts.py \
+        --results_dirs "$FIXED_EXP" "$ADAPTIVE_EXP" "$LEARNED_EXP" \
+        --output_dir "$forecast_output_dir"
+else
+    echo "===================================================================="
+    echo "Skipping forecast comparison - not all required experiment types found"
+    echo "===================================================================="
+    echo "Missing experiment directories:"
+    [ -z "$FIXED_EXP" ] && echo "- Fixed quantization (k=10) experiment"
+    [ -z "$ADAPTIVE_EXP" ] && echo "- Adaptive quantization (k=10) experiment"
+    [ -z "$LEARNED_EXP" ] && echo "- Learned policy experiment"
+fi
 
 # Summary
 echo "===================================================================="
@@ -90,5 +159,6 @@ echo "W&B Visualization Completed!"
 echo "===================================================================="
 echo "Output directories:"
 echo "- Study plots: $OUTPUT_DIR"
-echo "- Forecast comparison: $forecast_output_dir"
+echo "- Forecast comparison: $OUTPUT_DIR/forecast_comparison (if generated)"
+echo "W&B dashboard: https://wandb.ai/$WANDB_ENTITY/$WANDB_PROJECT"
 echo "====================================================================" 

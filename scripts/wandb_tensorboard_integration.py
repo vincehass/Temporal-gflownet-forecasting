@@ -20,19 +20,22 @@ from collections import defaultdict
 from typing import Dict, List, Tuple, Optional, Union, Any
 import yaml
 
-# Import key visualization functions from plot_ablation_results_with_tensorbaord.py
-from scripts.plot_ablation_results_with_tensorbaord import (
-    plot_tb_loss_visualization,
-    plot_ste_visualization,
-    plot_quantization_range_visualization,
-    plot_quantization_metrics,
-    draw_weighted_edge
-)
-
 # Set plot style
 plt.style.use('seaborn-v0_8-darkgrid')
 sns.set_context("paper", font_scale=1.5)
 COLORS = sns.color_palette("Set2", 10)
+
+# Add the current directory to the path so we can import local modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import visualization functions directly without using the script module
+# from plot_ablation_results_with_tensorbaord import (
+#     plot_tb_loss_visualization,
+#     plot_ste_visualization,
+#     plot_quantization_range_visualization,
+#     plot_quantization_metrics,
+#     draw_weighted_edge,
+# )
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""

@@ -13,6 +13,9 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+import torch.nn.functional as F
+import math
+import copy
 
 from src.temporal_gfn.models.transformer import TemporalTransformerModel
 from src.temporal_gfn.gfn.env import GFNEnvironment
@@ -460,7 +463,8 @@ class TemporalGFNTrainer:
                             f"Unique sequences: {unique_sequence_count}, "
                             f"Bin entropy: {normalized_bin_entropy:.2f}, "
                             f"Min reward: {reward_min:.1f}, Max reward: {reward_max:.1f}, "
-                            f"Mean reward: {reward_mean:.1f}")
+                            f"Mean reward: {reward_mean:.1f}, "
+                            f"Log10 reward mean: {np.log10(max(1e-20, abs(reward_mean))):.2f}")
             
             # Check if we should adapt K
             if self.adaptive_quant.check_adaptation():
