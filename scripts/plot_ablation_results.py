@@ -20,10 +20,10 @@ import re
 import wandb
 from typing import Dict, List, Tuple, Optional, Union, Any
 
-# Keep the existing visualization functions
-from plot_ablation_results import (plot_ste_visualization, 
-                                 plot_tb_loss_visualization,
-                                 plot_quantization_range_visualization)
+# Remove circular import - these functions will be defined in this file
+# from plot_ablation_results import (plot_ste_visualization, 
+#                                  plot_tb_loss_visualization,
+#                                  plot_quantization_range_visualization)
 
 # Set plot style
 plt.style.use('seaborn-v0_8-darkgrid')
