@@ -21,7 +21,7 @@ from src.temporal_gfn.gfn.sampling import sample_forward_trajectory
 from src.temporal_gfn.quantization.base import quantize, dequantize
 from src.temporal_gfn.quantization.adaptive import AdaptiveQuantization
 from src.temporal_gfn.data.scaling import MeanScaler, StandardScaler
-from src.temporal_gfn.data.windowing import create_context_target_windows
+from src.temporal_gfn.data.windowing import create_windows
 from src.temporal_gfn.utils.logging import create_logger, Logger
 
 def check_virtual_env():
@@ -152,7 +152,7 @@ def main():
 
     # Test windowing
     print("Testing windowing functionality...")
-    context, target = create_context_target_windows(time_series, context_length, prediction_horizon)
+    context, target = create_windows(time_series, context_length, prediction_horizon)
     print(f"Context shape: {context.shape}, Target shape: {target.shape}")
     logger.log_metrics({
         "test/context_shape": context.shape[1],

@@ -1,199 +1,221 @@
 """
-Logging utilities for the temporal GFN model.
-Primarily uses Weights & Biases for experiment tracking and visualization.
+Logging utilities for Temporal GFN.
 """
 import os
-import json
-import numpy as np
-import torch
-from typing import Dict, Any, Optional, Union, List
 import logging
-
-# Configure logger
-logger = logging.getLogger(__name__)
+import wandb
+from typing import Dict, Any, Optional, Union
+import numpy as np
+import matplotlib.pyplot as plt
+import torch
 
 class Logger:
-    """Logger class that primarily uses W&B with optional TensorBoard support."""
+    """Logger class that uses W&B for experiment tracking with TensorBoard integration."""
     
     def __init__(
         self,
         log_dir: str,
         experiment_name: str,
+        config: Dict[str, Any],
         use_wandb: bool = True,
-        wandb_entity: str = "nadhirvincenthassen",
-        wandb_project: str = "temporal-gfn",
-        use_tensorboard: bool = False,  # Disabled by default
-        config: Optional[Dict[str, Any]] = None,
+        wandb_entity: Optional[str] = None,
+        wandb_project: Optional[str] = None,
+        wandb_name: Optional[str] = None,
+        wandb_mode: str = "online",
+        use_tensorboard: bool = True,  # Enable by default for W&B integration
     ):
         """
-        Initialize the logger.
+        Initialize logger.
         
         Args:
             log_dir: Directory to save logs
             experiment_name: Name of the experiment
-            use_wandb: Whether to use Weights & Biases (primary logging tool)
-            wandb_entity: WandB entity name
-            wandb_project: WandB project name
-            use_tensorboard: Whether to use TensorBoard (optional secondary logging)
-            config: Configuration dictionary for the experiment
+            config: Configuration dictionary
+            use_wandb: Whether to use W&B for logging
+            wandb_entity: W&B entity name
+            wandb_project: W&B project name
+            wandb_name: W&B run name
+            wandb_mode: W&B mode (online/offline)
+            use_tensorboard: Whether to use TensorBoard (integrated with W&B)
         """
         self.log_dir = log_dir
         self.experiment_name = experiment_name
+        self.config = config
         self.use_wandb = use_wandb
         self.use_tensorboard = use_tensorboard
-        self.config = config or {}
         
-        # Create log directory if it doesn't exist
+        # Create log directory
         os.makedirs(log_dir, exist_ok=True)
         
-        # Initialize WandB (primary)
+        # Set up Python logger
+        self.logger = logging.getLogger(experiment_name)
+        self.logger.setLevel(logging.INFO)
+        
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(formatter)
+        self.logger.addHandler(console_handler)
+        
+        # File handler
+        file_handler = logging.FileHandler(os.path.join(log_dir, f'{experiment_name}.log'))
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        self.logger.addHandler(file_handler)
+        
+        # Initialize W&B first
         self.wandb_run = None
         if use_wandb:
             try:
-                import wandb
-                if wandb.login():
-                    self.wandb_run = wandb.init(
-                        project=wandb_project,
-                        entity=wandb_entity,
-                        name=experiment_name,
-                        config=config,
-                        dir=os.path.join(log_dir, 'wandb'),
-                    )
-                    logger.info(f"WandB initialized with entity={wandb_entity}, project={wandb_project}")
-                else:
-                    logger.warning("WandB login failed. WandB logging disabled.")
-                    self.use_wandb = False
-            except ImportError:
-                logger.warning("wandb package not found. WandB logging disabled.")
+                self.wandb_run = wandb.init(
+                    project=wandb_project or "temporal-gfn-forecasting",
+                    entity=wandb_entity,
+                    name=wandb_name or experiment_name,
+                    config=config,
+                    mode=wandb_mode,
+                    dir=log_dir,
+                )
+                self.logger.info(f"W&B initialized. Run URL: {self.wandb_run.url}")
+                
+                # Enable TensorBoard integration with W&B
+                if use_tensorboard:
+                    try:
+                        # Patch tensorboard to sync with W&B
+                        wandb.tensorboard.patch(root_logdir=os.path.join(log_dir, 'tensorboard'))
+                        self.logger.info("TensorBoard integration with W&B enabled")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to enable TensorBoard-W&B integration: {e}")
+                        
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize W&B: {e}")
                 self.use_wandb = False
         
-        # Initialize TensorBoard (optional)
+        # Initialize TensorBoard (will be synced to W&B if integration is enabled)
         self.tb_writer = None
         if use_tensorboard:
             try:
                 from torch.utils.tensorboard import SummaryWriter
-                self.tb_writer = SummaryWriter(log_dir=os.path.join(log_dir, 'tensorboard'))
-                logger.info(f"TensorBoard logs will be saved to {os.path.join(log_dir, 'tensorboard')}")
+                tb_log_dir = os.path.join(log_dir, 'tensorboard')
+                self.tb_writer = SummaryWriter(log_dir=tb_log_dir)
+                self.logger.info(f"TensorBoard logs will be saved to {tb_log_dir}")
+                if self.use_wandb:
+                    self.logger.info("TensorBoard logs will be automatically synced to W&B")
             except ImportError:
-                logger.warning("torch.utils.tensorboard not found. TensorBoard logging disabled.")
+                self.logger.warning("torch.utils.tensorboard not found. TensorBoard logging disabled.")
                 self.use_tensorboard = False
-        
-        # Save config to file
-        if config:
-            config_path = os.path.join(log_dir, 'config.json')
-            with open(config_path, 'w') as f:
-                json.dump(config, f, indent=2)
     
-    def log_metrics(self, metrics: Dict[str, Any], step: int):
+    def log_metrics(self, metrics: Dict[str, Union[float, int]], step: Optional[int] = None):
         """
-        Log metrics to W&B and optionally TensorBoard.
+        Log metrics to both W&B and TensorBoard.
         
         Args:
             metrics: Dictionary of metrics to log
-            step: Current step/iteration
+            step: Step number (optional)
         """
-        # Log to WandB (primary)
+        # Log to W&B
         if self.use_wandb and self.wandb_run:
-            import wandb
-            wandb.log(metrics, step=step)
+            try:
+                self.wandb_run.log(metrics, step=step)
+            except Exception as e:
+                self.logger.warning(f"Failed to log metrics to W&B: {e}")
         
-        # Log to TensorBoard (optional)
+        # Log to TensorBoard (will be synced to W&B automatically)
         if self.use_tensorboard and self.tb_writer:
             for key, value in metrics.items():
-                if isinstance(value, (int, float, np.number)):
-                    self.tb_writer.add_scalar(key, value, step)
-                elif isinstance(value, torch.Tensor) and value.numel() == 1:
-                    self.tb_writer.add_scalar(key, value.item(), step)
-            self.tb_writer.flush()
+                if isinstance(value, (int, float)):
+                    self.tb_writer.add_scalar(key, value, step or 0)
     
-    def log_histogram(self, name: str, values: Union[torch.Tensor, np.ndarray], step: int):
+    def log_histogram(self, name: str, values: np.ndarray, step: Optional[int] = None):
         """
-        Log histogram data.
+        Log histogram to both W&B and TensorBoard.
         
         Args:
             name: Name of the histogram
             values: Values to create histogram from
-            step: Current step/iteration
+            step: Step number (optional)
         """
-        if isinstance(values, torch.Tensor):
-            values = values.detach().cpu().numpy()
-        
-        # Log to WandB (primary)
+        # Log to W&B
         if self.use_wandb and self.wandb_run:
-            import wandb
-            wandb.log({name: wandb.Histogram(values)}, step=step)
+            try:
+                self.wandb_run.log({name: wandb.Histogram(values)}, step=step)
+            except Exception as e:
+                self.logger.warning(f"Failed to log histogram to W&B: {e}")
         
-        # Log to TensorBoard (optional)
+        # Log to TensorBoard (will be synced to W&B automatically)
         if self.use_tensorboard and self.tb_writer:
-            self.tb_writer.add_histogram(name, values, step)
+            self.tb_writer.add_histogram(name, values, step or 0)
     
-    def log_image(self, name: str, image, step: int):
+    def log_image(self, name: str, image: Union[plt.Figure, np.ndarray, torch.Tensor], step: Optional[int] = None):
         """
-        Log image data.
+        Log image to both W&B and TensorBoard.
         
         Args:
             name: Name of the image
-            image: Image to log (matplotlib figure or numpy array)
-            step: Current step/iteration
+            image: Image to log (matplotlib figure, numpy array, or torch tensor)
+            step: Step number (optional)
         """
-        # For matplotlib figures
-        if 'matplotlib.figure.Figure' in str(type(image)):
-            # Log to WandB (primary)
-            if self.use_wandb and self.wandb_run:
-                import wandb
-                wandb.log({name: wandb.Image(image)}, step=step)
-            
-            # Log to TensorBoard (optional)
-            if self.use_tensorboard and self.tb_writer:
-                self.tb_writer.add_figure(name, image, step)
-        else:
-            # Assume numpy array or torch tensor
-            if isinstance(image, torch.Tensor):
-                image = image.detach().cpu().numpy()
-            
-            # Log to WandB (primary)
-            if self.use_wandb and self.wandb_run:
-                import wandb
-                wandb.log({name: wandb.Image(image)}, step=step)
-            
-            # Log to TensorBoard (optional)
-            if self.use_tensorboard and self.tb_writer:
-                self.tb_writer.add_image(name, image, step)
+        # Log to W&B
+        if self.use_wandb and self.wandb_run:
+            try:
+                if isinstance(image, plt.Figure):
+                    self.wandb_run.log({name: wandb.Image(image)}, step=step)
+                else:
+                    self.wandb_run.log({name: wandb.Image(image)}, step=step)
+            except Exception as e:
+                self.logger.warning(f"Failed to log image to W&B: {e}")
+        
+        # Log to TensorBoard (will be synced to W&B automatically)
+        if self.use_tensorboard and self.tb_writer:
+            if isinstance(image, plt.Figure):
+                self.tb_writer.add_figure(name, image, step or 0)
+            elif isinstance(image, np.ndarray):
+                self.tb_writer.add_image(name, image, step or 0, dataformats='HWC')
+            elif isinstance(image, torch.Tensor):
+                self.tb_writer.add_image(name, image, step or 0)
     
-    def log_hyperparams(self, params: Dict[str, Any]):
+    def log_text(self, name: str, text: str, step: Optional[int] = None):
         """
-        Log hyperparameters.
+        Log text to both W&B and TensorBoard.
         
         Args:
-            params: Dictionary of hyperparameters
+            name: Name of the text log
+            text: Text to log
+            step: Step number (optional)
         """
-        # Log to WandB (primary) - update config
+        # Log to W&B
         if self.use_wandb and self.wandb_run:
-            import wandb
-            wandb.config.update(params)
-            
-        # Log to TensorBoard (optional)
+            try:
+                self.wandb_run.log({name: wandb.Html(text)}, step=step)
+            except Exception as e:
+                self.logger.warning(f"Failed to log text to W&B: {e}")
+        
+        # Log to TensorBoard (will be synced to W&B automatically)
         if self.use_tensorboard and self.tb_writer:
-            self.tb_writer.add_hparams(params, {})
+            self.tb_writer.add_text(name, text, step or 0)
     
     def close(self):
-        """Close all loggers."""
-        if self.use_wandb and self.wandb_run:
-            import wandb
-            wandb.finish()
-            
+        """Close logger and cleanup resources."""
         if self.use_tensorboard and self.tb_writer:
             self.tb_writer.close()
+            
+        if self.use_wandb and self.wandb_run:
+            try:
+                self.wandb_run.finish()
+            except Exception as e:
+                self.logger.warning(f"Failed to finish W&B run: {e}")
 
 
 def create_logger(
     log_dir: str,
     experiment_name: str,
-    config: Optional[Dict[str, Any]] = None,
+    config: Dict[str, Any],
     use_wandb: bool = True,
-    wandb_entity: str = "nadhirvincenthassen",
-    wandb_project: str = "temporal-gfn",
-    use_tensorboard: bool = False,  # Disabled by default
+    wandb_entity: Optional[str] = None,
+    wandb_project: Optional[str] = None,
+    wandb_name: Optional[str] = None,
+    wandb_mode: str = "online",
+    use_tensorboard: bool = True,  # Enable by default for W&B integration
 ) -> Logger:
     """
     Create a logger instance.
@@ -201,21 +223,25 @@ def create_logger(
     Args:
         log_dir: Directory to save logs
         experiment_name: Name of the experiment
-        config: Configuration dictionary for the experiment
-        use_wandb: Whether to use Weights & Biases (primary)
-        wandb_entity: WandB entity name
-        wandb_project: WandB project name
-        use_tensorboard: Whether to use TensorBoard (optional)
-        
+        config: Configuration dictionary
+        use_wandb: Whether to use W&B for logging
+        wandb_entity: W&B entity name
+        wandb_project: W&B project name
+        wandb_name: W&B run name
+        wandb_mode: W&B mode (online/offline)
+        use_tensorboard: Whether to use TensorBoard (integrated with W&B)
+    
     Returns:
         Logger instance
     """
     return Logger(
         log_dir=log_dir,
         experiment_name=experiment_name,
+        config=config,
         use_wandb=use_wandb,
         wandb_entity=wandb_entity,
         wandb_project=wandb_project,
+        wandb_name=wandb_name,
+        wandb_mode=wandb_mode,
         use_tensorboard=use_tensorboard,
-        config=config,
     ) 

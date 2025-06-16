@@ -2,20 +2,24 @@
 Trainers for Temporal GFN models.
 """
 import os
+import sys
 import time
 import logging
-import numpy as np
-from tqdm import tqdm
 from typing import Dict, Tuple, List, Any, Optional, Union, Callable
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+# Restore tensorboard import for W&B integration
 from torch.utils.tensorboard import SummaryWriter
+import wandb
+from omegaconf import DictConfig, OmegaConf
 import torch.nn.functional as F
 import math
 import copy
+import numpy as np
+from tqdm import tqdm
 
 from src.temporal_gfn.models.transformer import TemporalTransformerModel
 from src.temporal_gfn.gfn.env import GFNEnvironment
@@ -36,11 +40,12 @@ from src.temporal_gfn.gfn.sampling import (
 )
 from src.temporal_gfn.quantization.adaptive import AdaptiveQuantization
 from src.temporal_gfn.utils.metrics import calculate_metrics
+from src.temporal_gfn.utils.device import DeviceManager, create_device_manager, get_optimal_batch_size
 
 
 class TemporalGFNTrainer:
     """
-    Trainer for Temporal GFN models.
+    Trainer for Temporal GFN models with modular CPU/GPU support.
     
     This trainer orchestrates the training process, including:
     - Forward and backward passes
@@ -48,6 +53,7 @@ class TemporalGFNTrainer:
     - Optimization updates
     - Adaptive quantization
     - Logging and checkpointing
+    - Modular device management (CPU/GPU switching)
     
     Attributes:
         env: GFN environment
@@ -55,10 +61,9 @@ class TemporalGFNTrainer:
         backward_policy: Backward policy wrapper
         tb_loss: Trajectory Balance loss
         optimizer: Optimizer for model parameters
-        device: Device to use for training
+        device_manager: Device management for CPU/GPU switching
         adaptive_quant: Adaptive quantization mechanism
         logger: Logger for training progress
-        tb_writer: TensorBoard writer
     """
     
     def __init__(
@@ -66,7 +71,9 @@ class TemporalGFNTrainer:
         config: Dict[str, Any],
         forward_model: TemporalTransformerModel,
         backward_model: Optional[TemporalTransformerModel] = None,
-        device: str = 'cuda',
+        device: Optional[Union[str, torch.device]] = None,
+        force_cpu: bool = False,
+        gpu_id: Optional[int] = None,
     ):
         """
         Initialize the trainer.
@@ -75,10 +82,38 @@ class TemporalGFNTrainer:
             config: Configuration dictionary
             forward_model: Forward policy model
             backward_model: Backward policy model (optional)
-            device: Device to use for training
+            device: Device specification ('cpu', 'cuda', 'cuda:0', etc.)
+            force_cpu: Force CPU usage even if GPU is available
+            gpu_id: Specific GPU ID to use
         """
         self.config = config
-        self.device = device
+        
+        # Initialize device manager for modular CPU/GPU switching
+        self.device_manager = create_device_manager(
+            device=device,
+            force_cpu=force_cpu,
+            gpu_id=gpu_id,
+            multi_gpu=config.get('training', {}).get('multi_gpu', False),
+            log_info=True
+        )
+        self.device = self.device_manager.get_device()
+        
+        # Setup device optimizations
+        device_config = self.device_manager.setup_for_training()
+        
+        # Optimize batch size based on device
+        original_batch_size = config.get('training', {}).get('batch_size', 32)
+        optimal_batch_size = get_optimal_batch_size(
+            self.device, forward_model, original_batch_size
+        )
+        if optimal_batch_size != original_batch_size:
+            self.logger.info(f"Adjusted batch size from {original_batch_size} to {optimal_batch_size} for device {self.device}")
+            config['training']['batch_size'] = optimal_batch_size
+        
+        # Move models to device
+        forward_model = self.device_manager.to_device(forward_model)
+        if backward_model is not None:
+            backward_model = self.device_manager.to_device(backward_model)
         
         # GFN Environment
         self.env = GFNEnvironment(
@@ -87,7 +122,7 @@ class TemporalGFNTrainer:
             k=config['quantization']['k_initial'],
             context_length=config['dataset']['context_length'],
             prediction_horizon=config['dataset']['prediction_horizon'],
-            device=device,
+            device=self.device,
         )
         
         # Forward policy
@@ -180,13 +215,50 @@ class TemporalGFNTrainer:
         file_handler.setLevel(logging.INFO)
         self.logger.addHandler(file_handler)
         
-        # TensorBoard writer
-        self.tb_writer = SummaryWriter(os.path.join(self.results_dir, 'logs'))
-        
         # Training statistics
         self.global_step = 0
         self.best_val_loss = float('inf')
         self.best_val_metrics = {}
+        
+        # Log device configuration
+        self.logger.info(f"Trainer initialized with device: {self.device}")
+        self.logger.info(f"Device type: {self.device.type}")
+        if self.device_manager.is_gpu():
+            memory_info = self.device_manager.get_memory_info()
+            self.logger.info(f"GPU Memory: {memory_info['free_memory'] / 1024**3:.1f} GB free")
+    
+    def switch_device(self, new_device: Union[str, torch.device]):
+        """
+        Switch to a different device during training.
+        
+        Args:
+            new_device: New device to switch to
+        """
+        old_device = self.device
+        self.device_manager.set_device(new_device)
+        self.device = self.device_manager.get_device()
+        
+        # Move models to new device
+        self.forward_policy.model = self.device_manager.to_device(self.forward_policy.model)
+        if hasattr(self.backward_policy, 'model') and self.backward_policy.model is not None:
+            self.backward_policy.model = self.device_manager.to_device(self.backward_policy.model)
+        
+        # Update environment device
+        self.env.device = self.device
+        
+        self.logger.info(f"Switched device from {old_device} to {self.device}")
+        
+        # Clear cache on old device if it was GPU
+        if old_device.type == 'cuda':
+            torch.cuda.empty_cache()
+    
+    def get_memory_usage(self) -> Dict[str, Any]:
+        """Get current memory usage information."""
+        return self.device_manager.get_memory_info()
+    
+    def clear_gpu_cache(self):
+        """Clear GPU cache if using CUDA."""
+        self.device_manager.clear_cache()
     
     def train(
         self,
@@ -206,9 +278,20 @@ class TemporalGFNTrainer:
         self.logger.info(f"Training on device: {self.device}")
         self.logger.info(f"Initial quantization bins K: {self.env.k}")
         
+        # Log initial memory usage if GPU
+        if self.device_manager.is_gpu():
+            memory_info = self.get_memory_usage()
+            self.logger.info(f"Initial GPU memory: {memory_info['allocated_memory'] / 1024**3:.2f} GB allocated")
+        
         for epoch in range(num_epochs):
             # Training
             train_loss, train_metrics = self._train_epoch(train_loader, epoch)
+            
+            # Clear GPU cache periodically
+            if self.device_manager.is_gpu() and epoch % 5 == 0:
+                self.clear_gpu_cache()
+                memory_info = self.get_memory_usage()
+                self.logger.info(f"GPU memory after epoch {epoch}: {memory_info['allocated_memory'] / 1024**3:.2f} GB allocated")
             
             # Validation
             if val_loader is not None:
@@ -233,8 +316,11 @@ class TemporalGFNTrainer:
         self.logger.info(f"Best validation loss: {self.best_val_loss:.6f}")
         self.logger.info(f"Best validation metrics: {self.best_val_metrics}")
         
-        # Close TensorBoard writer
-        self.tb_writer.close()
+        # Final memory cleanup
+        if self.device_manager.is_gpu():
+            self.clear_gpu_cache()
+            final_memory = self.get_memory_usage()
+            self.logger.info(f"Final GPU memory: {final_memory['allocated_memory'] / 1024**3:.2f} GB allocated")
     
     def _train_epoch(self, train_loader: DataLoader, epoch: int) -> Tuple[float, Dict[str, float]]:
         """
@@ -286,24 +372,6 @@ class TemporalGFNTrainer:
                 'k': self.env.k,
                 'reward': metrics['reward']
             })
-            
-            # Log to TensorBoard
-            if self.global_step % self.log_interval == 0:
-                self.tb_writer.add_scalar('train/loss', loss.item(), self.global_step)
-                self.tb_writer.add_scalar('train/forward', metrics['forward'], self.global_step)
-                self.tb_writer.add_scalar('train/backward', metrics['backward'], self.global_step)
-                self.tb_writer.add_scalar('train/reward', metrics['reward'], self.global_step)
-                self.tb_writer.add_scalar('train/logZ', self.tb_loss.log_Z.item(), self.global_step)
-                if 'entropy' in metrics:
-                    self.tb_writer.add_scalar('train/entropy', metrics['entropy'], self.global_step)
-                
-                # Log adaptive quantization stats
-                if self.adaptive_quant is not None:
-                    self.tb_writer.add_scalar('quantization/k', self.env.k, self.global_step)
-                    if self.adaptive_quant.rewards_ema is not None:
-                        self.tb_writer.add_scalar('quantization/rewards_ema', self.adaptive_quant.rewards_ema, self.global_step)
-                    if self.adaptive_quant.entropy_ema is not None:
-                        self.tb_writer.add_scalar('quantization/entropy_ema', self.adaptive_quant.entropy_ema, self.global_step)
             
             # Increment global step
             self.global_step += 1
@@ -453,11 +521,6 @@ class TemporalGFNTrainer:
                 normalized_bin_entropy = 0.0
             
             # Log detailed quantization metrics
-            self.tb_writer.add_scalar('quant/unique_action_ratio', unique_actions_ratio, self.global_step)
-            self.tb_writer.add_scalar('quant/unique_sequences', unique_sequence_count, self.global_step)
-            self.tb_writer.add_scalar('quant/bin_entropy', normalized_bin_entropy, self.global_step)
-            
-            # Log trajectory statistics with enhanced information
             self.logger.info(f"Trajectory stats: Diversity: {trajectory_diversity:.2f}, "
                             f"Unique actions: {unique_actions_count}/{self.env.k} ({unique_actions_ratio:.2f}), "
                             f"Unique sequences: {unique_sequence_count}, "
@@ -487,15 +550,9 @@ class TemporalGFNTrainer:
                                 f"Var/Mean ratio: {reward_var/abs(reward_mean):.4f}, "
                                 f"Entropy EMA: {latest_log['entropy_ema']:.4f}, "
                                 f"Learning indicator (eta_e): {latest_log['eta_e']:.6f}")
-                
-                # Also log to TensorBoard for visualization
-                self.tb_writer.add_scalar('quantization/delta_t', delta_t, self.global_step)
-                self.tb_writer.add_scalar('quantization/reward_variance', reward_var, self.global_step)
-                self.tb_writer.add_scalar('quantization/var_mean_ratio', reward_var/abs(reward_mean), self.global_step)
-                self.tb_writer.add_scalar('quantization/eta_e', latest_log['eta_e'], self.global_step)
             
-            # Sync the environment's K with adaptive quantization
-            self.adaptive_quant.k = self.env.k
+                # Sync the environment's K with adaptive quantization
+                self.adaptive_quant.k = self.env.k
         
         # Create metrics dictionary
         metrics = {
@@ -631,13 +688,6 @@ class TemporalGFNTrainer:
             f"CRPS: {val_crps:.6f}, MASE: {val_mase:.6f}"
         )
         
-        # Log to TensorBoard
-        self.tb_writer.add_scalar('val/loss', val_loss, self.global_step)
-        self.tb_writer.add_scalar('val/wql', val_wql, self.global_step)
-        self.tb_writer.add_scalar('val/crps', val_crps, self.global_step)
-        if 'mase' in metrics:
-            self.tb_writer.add_scalar('val/mase', val_mase, self.global_step)
-        
         # Return average loss and metrics
         return val_loss, {
             'wql': val_wql,
@@ -733,4 +783,38 @@ class TemporalGFNTrainer:
         self.logger.info(f"Checkpoint epoch: {checkpoint.get('epoch', 'unknown')}")
         self.logger.info(f"Best validation loss: {self.best_val_loss:.6f}")
         
-        return checkpoint.get('epoch', 0) 
+        return checkpoint.get('epoch', 0)
+
+    def __del__(self):
+        """Cleanup resources."""
+        # Remove TensorBoard writer cleanup
+        # # Close TensorBoard writer
+        # if hasattr(self, 'tb_writer') and self.tb_writer is not None:
+        #     self.tb_writer.close()
+
+        # Remove TensorBoard logging
+        # # Log to TensorBoard
+        # if self.tb_writer:
+        #     self.tb_writer.add_scalar('train/loss', loss.item(), self.global_step)
+        #     self.tb_writer.add_scalar('train/tb_loss', tb_loss_value, self.global_step)
+        #     self.tb_writer.add_scalar('train/entropy_loss', entropy_loss_value, self.global_step)
+        #     self.tb_writer.add_scalar('train/reward_mean', reward_stats['mean'], self.global_step)
+        #     self.tb_writer.add_scalar('train/reward_std', reward_stats['std'], self.global_step)
+        #     self.tb_writer.add_scalar('train/trajectory_diversity', trajectory_stats['diversity'], self.global_step)
+        #     self.tb_writer.add_scalar('train/unique_actions_ratio', trajectory_stats['unique_actions_ratio'], self.global_step)
+        #     self.tb_writer.add_scalar('quantization/current_k', current_k, self.global_step)
+
+        # Remove TensorBoard logging
+        # # Also log to TensorBoard for visualization
+        # if self.tb_writer:
+        #     for key, value in metrics.items():
+        #         if isinstance(value, (int, float)):
+        #             self.tb_writer.add_scalar(f'eval/{key}', value, step)
+
+        # Remove TensorBoard logging
+        # # Log to TensorBoard
+        # if self.tb_writer:
+        #     self.tb_writer.add_scalar('eval/wql_mean', wql_mean, step)
+        #     self.tb_writer.add_scalar('eval/mase', mase, step)
+        #     for i, q in enumerate(quantiles):
+        #         self.tb_writer.add_scalar(f'eval/wql_{q}', wql_values[i], step) 

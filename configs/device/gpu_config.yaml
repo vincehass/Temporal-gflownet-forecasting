@@ -1,0 +1,11 @@
+# GPU Device Configuration
+device:
+  force_cpu: false
+  gpu_id: 0 # Use first GPU by default
+  multi_gpu: false
+  log_info: true
+
+training:
+  batch_size: 32 # Standard batch size for GPU
+  num_workers: 2 # Fewer workers for GPU (data loading is faster)
+  pin_memory: true

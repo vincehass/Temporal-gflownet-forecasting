@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Training script for Temporal GFN model with modular CPU/GPU support.
+Training script for Temporal GFN model.
 """
 import os
 import sys
@@ -26,7 +26,6 @@ from src.temporal_gfn.data.dataset import (
     SyntheticTimeSeriesDataset,
     create_dataloader,
 )
-from src.temporal_gfn.utils.device import create_device_manager, setup_slurm_environment
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -149,51 +148,22 @@ def main(cfg: DictConfig):
     # Get command line args
     use_wandb = hasattr(cfg, "use_wandb") and cfg.use_wandb
     
-    # Setup device configuration with modular CPU/GPU support
-    device_config = {
-        'device': None,
-        'force_cpu': False,
-        'gpu_id': None,
-    }
+    # Set device based on arguments
+    device = "cpu"
+    if torch.cuda.is_available():
+        if hasattr(cfg, "gpu") and cfg.gpu >= 0:
+            device = f"cuda:{cfg.gpu}"
+        else:
+            device = "cuda:0"  # Default to first GPU
     
-    # Check for SLURM environment (Cedar cluster)
-    slurm_vars = setup_slurm_environment()
-    if slurm_vars:
-        print("SLURM environment detected:")
-        for key, value in slurm_vars.items():
-            print(f"  {key}: {value}")
-        
-        # Use SLURM local rank for GPU selection
-        if 'local_rank' in slurm_vars and torch.cuda.is_available():
-            device_config['gpu_id'] = slurm_vars['local_rank']
-    
-    # Override with command line arguments
+    # Convert string 'cpu' or 'gpu' to appropriate device
     if hasattr(cfg, "device"):
         if cfg.device == "cpu":
-            device_config['force_cpu'] = True
+            device = "cpu"
         elif cfg.device.startswith("cuda"):
-            device_config['device'] = cfg.device
-        else:
-            device_config['device'] = cfg.device
-    
-    if hasattr(cfg, "gpu") and cfg.gpu >= 0:
-        device_config['gpu_id'] = cfg.gpu
-    
-    if hasattr(cfg, "force_cpu") and cfg.force_cpu:
-        device_config['force_cpu'] = True
-    
-    # Create device manager
-    device_manager = create_device_manager(
-        device=device_config['device'],
-        force_cpu=device_config['force_cpu'],
-        gpu_id=device_config['gpu_id'],
-        multi_gpu=config.get('training', {}).get('multi_gpu', False),
-        log_info=True
-    )
-    device = device_manager.get_device()
+            device = cfg.device
     
     print(f"Using device: {device}")
-    print(f"Device type: {device.type}")
     
     if hasattr(cfg, "seed"):
         # Set random seed
@@ -207,17 +177,9 @@ def main(cfg: DictConfig):
         os.makedirs(results_dir, exist_ok=True)
         os.makedirs(os.path.join(results_dir, "checkpoints"), exist_ok=True)
         
-        # Save config with device info
-        config_to_save = config.copy()
-        config_to_save['device_info'] = {
-            'device': str(device),
-            'device_type': device.type,
-            'is_gpu': device_manager.is_gpu(),
-            'slurm_vars': slurm_vars
-        }
-        
+        # Save config
         with open(os.path.join(results_dir, "config.yaml"), "w") as f:
-            yaml.dump(config_to_save, f)
+            yaml.dump(config, f)
     
     # Create datasets
     train_dataset = create_dataset(config, 'train')
@@ -226,13 +188,13 @@ def main(cfg: DictConfig):
     if config.get('validation', {}).get('enabled', True):
         val_dataset = create_dataset(config, 'val')
     
-    # Create dataloaders with device-aware settings
+    # Create dataloaders
     train_loader = create_dataloader(
         train_dataset,
         batch_size=config['training']['batch_size'],
         shuffle=True,
         num_workers=config['training'].get('num_workers', 0),
-        pin_memory=device_manager.is_gpu(),  # Use device manager to determine pin_memory
+        pin_memory=(device.startswith('cuda')),
     )
     
     val_loader = None
@@ -242,7 +204,7 @@ def main(cfg: DictConfig):
             batch_size=config['evaluation'].get('batch_size', config['training']['batch_size']),
             shuffle=False,
             num_workers=config['training'].get('num_workers', 0),
-            pin_memory=device_manager.is_gpu(),
+            pin_memory=(device.startswith('cuda')),
         )
     
     # Create models
@@ -258,14 +220,12 @@ def main(cfg: DictConfig):
     if backward_model is not None:
         backward_model = backward_model.to(device)
     
-    # Create trainer with device manager parameters
+    # Create trainer
     trainer = TemporalGFNTrainer(
         config=config,
         forward_model=forward_model,
         backward_model=backward_model,
-        device=device_config['device'],
-        force_cpu=device_config['force_cpu'],
-        gpu_id=device_config['gpu_id'],
+        device=device,
     )
     
     # Resume training if specified
@@ -281,11 +241,6 @@ def main(cfg: DictConfig):
     )
     
     print("Training completed!")
-    
-    # Log final device memory usage if GPU
-    if trainer.device_manager.is_gpu():
-        final_memory = trainer.get_memory_usage()
-        print(f"Final GPU memory usage: {final_memory['allocated_memory'] / 1024**3:.2f} GB allocated")
 
 
 if __name__ == "__main__":

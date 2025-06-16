@@ -1,0 +1,23 @@
+# Cedar Compute Canada Cluster Configuration
+device:
+  force_cpu: false
+  gpu_id: null # Will be set by SLURM environment
+  multi_gpu: true # Enable multi-GPU support
+  log_info: true
+
+training:
+  batch_size: 64 # Larger batch size for cluster GPUs
+  num_workers: 8 # More workers for cluster
+  pin_memory: true
+  multi_gpu: true
+
+# SLURM-specific settings
+slurm:
+  enabled: true
+  use_local_rank: true
+
+# Optimization settings for cluster
+optimization:
+  cudnn_benchmark: true
+  mixed_precision: true # Enable for faster training
+  gradient_checkpointing: false # Disable to save memory

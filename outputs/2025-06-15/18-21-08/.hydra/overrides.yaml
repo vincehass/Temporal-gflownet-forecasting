@@ -1,0 +1,7 @@
+- dataset=synthetic_config
+- model=transformer_config
+- quantization=adaptive_config
+- training.epochs=1
+- training.batch_size=4
+- use_wandb=false
+- results_dir=results/debug_test

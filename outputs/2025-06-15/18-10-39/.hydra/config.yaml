@@ -1,0 +1,78 @@
+model:
+  d_model: 256
+  nhead: 8
+  d_hid: 512
+  nlayers: 4
+  dropout: 0.1
+  uniform_init: true
+gfn:
+  Z_init: 0.0
+  Z_lr: 0.01
+  lambda_entropy: 0.01
+quantization:
+  adaptive: true
+  k_initial: 10
+  k_max: 100
+  vmin: -10.0
+  vmax: 10.0
+  lambda_adapt: 0.9
+  epsilon_adapt: 0.02
+  delta_adapt: 5
+  update_interval: 1000
+policy:
+  backward_policy_type: uniform
+  rand_action_prob: 0.01
+dataset:
+  type: synthetic
+  context_length: 96
+  prediction_horizon: 24
+  scaler_type: mean
+  stride: 1
+  sample_stride: 5
+  return_indices: false
+  num_series: 100
+  series_length: 200
+  model_type: combined
+  model_params:
+    phi: 0.9
+    period: 20
+    amplitude: 1.0
+    slope: 0.01
+  noise_level: 0.1
+training:
+  epochs: 2
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  use_lr_scheduler: true
+  grad_clip_norm: 1.0
+  num_workers: 4
+validation:
+  enabled: true
+evaluation:
+  batch_size: 32
+  num_samples: 100
+  quantiles:
+  - 0.1
+  - 0.2
+  - 0.3
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.7
+  - 0.8
+  - 0.9
+  seasonality: 1
+  save_forecasts: false
+logging:
+  results_dir: ./results/
+  log_interval: 100
+  checkpoint_interval: 5
+results_dir: results/test_simple
+use_wandb: true
+wandb_entity: nadhirvincenthassen
+wandb_project: temporal-gfn-forecasting
+wandb_name: test_simple
+wandb_mode: offline
+gpu: 0
+seed: 42

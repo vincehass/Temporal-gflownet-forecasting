@@ -1,0 +1,10 @@
+# CPU Device Configuration
+device:
+  force_cpu: true
+  multi_gpu: false
+  log_info: true
+
+training:
+  batch_size: 16 # Smaller batch size for CPU
+  num_workers: 4 # More workers for CPU
+  pin_memory: false
