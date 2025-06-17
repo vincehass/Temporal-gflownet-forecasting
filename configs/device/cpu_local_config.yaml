@@ -1,0 +1,33 @@
+# CPU Local Development Configuration
+# Optimized for running tests locally on CPU while Compute Canada is down
+
+device:
+  force_cpu: true # Force CPU usage even if GPU is available
+  multi_gpu: false # Disable multi-GPU
+  log_info: true # Show device information
+
+training:
+  batch_size: 8 # Reduced batch size for CPU efficiency
+  num_workers: 2 # Fewer workers for CPU
+  pin_memory: false # Disable pin_memory for CPU
+  learning_rate: 0.001 # Standard learning rate
+  grad_clip_norm: 1.0 # Gradient clipping
+
+# CPU-specific optimizations
+cpu_optimizations:
+  omp_num_threads: 4 # OpenMP threads
+  mkl_num_threads: 4 # MKL threads
+  numexpr_num_threads: 4 # NumExpr threads
+
+# Reduced computational requirements for testing
+testing:
+  epochs: 3 # Reduced from 50 for quick testing
+  context_length: 48 # Reduced from 96
+  prediction_horizon: 12 # Reduced from 24
+  k_initial: 5 # Reduced from 10
+
+# Dataset optimizations for CPU
+dataset:
+  num_series: 50 # Reduced from 100
+  series_length: 100 # Reduced from 200
+  sample_stride: 10 # Increased stride to reduce data size

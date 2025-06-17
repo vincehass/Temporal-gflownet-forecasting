@@ -149,6 +149,26 @@ def main(cfg: DictConfig):
     # Get command line args
     use_wandb = hasattr(cfg, "use_wandb") and cfg.use_wandb
     
+    # Initialize W&B if requested
+    wandb_run = None
+    if use_wandb:
+        import wandb
+        wandb_config = {
+            'project': getattr(cfg, 'wandb_project', 'temporal-gfn'),
+            'entity': getattr(cfg, 'wandb_entity', None),
+            'name': getattr(cfg, 'wandb_name', None),
+            'mode': getattr(cfg, 'wandb_mode', 'online'),
+            'config': config
+        }
+        
+        # Filter out None values
+        wandb_config = {k: v for k, v in wandb_config.items() if v is not None}
+        
+        print(f"Initializing W&B with config: {wandb_config}")
+        wandb_run = wandb.init(**wandb_config)
+        print(f"W&B run initialized: {wandb_run.name} ({wandb_run.id})")
+        print(f"W&B dashboard: {wandb_run.url}")
+    
     # Setup device configuration with modular CPU/GPU support
     device_config = {
         'device': None,

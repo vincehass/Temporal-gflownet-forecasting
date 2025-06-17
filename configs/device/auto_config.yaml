@@ -1,0 +1,80 @@
+# Auto-Detection Device Configuration
+# Automatically switches between local CPU and cluster GPU based on environment
+# No manual changes needed when switching between local and Compute Canada
+
+device:
+  # Auto-detection settings (will be overridden by environment detection)
+  auto_detect: true # Enable automatic device detection
+  prefer_gpu: true # Prefer GPU when available
+  force_cpu: false # Can be overridden by environment variables
+  multi_gpu: false # Enable multi-GPU on clusters
+  log_info: true # Always show device information
+
+# Environment-specific overrides
+environment:
+  # Local development (CPU fallback)
+  local:
+    device:
+      force_cpu: true # Force CPU for local development
+      multi_gpu: false
+    training:
+      batch_size: 8 # Small batch for CPU
+      num_workers: 2 # Fewer workers for CPU
+      pin_memory: false # Disable pin_memory for CPU
+    testing:
+      epochs: 3 # Quick testing locally
+      context_length: 48 # Reduced for speed
+      prediction_horizon: 12
+      k_initial: 5
+    dataset:
+      num_series: 50 # Smaller dataset for local testing
+      series_length: 100
+
+  # Compute Canada cluster (GPU optimized)
+  cluster:
+    device:
+      force_cpu: false # Use available GPUs
+      multi_gpu: true # Enable multi-GPU if available
+    training:
+      batch_size: 64 # Larger batch for GPU
+      num_workers: 8 # More workers for cluster
+      pin_memory: true # Enable pin_memory for GPU
+    testing:
+      epochs: 50 # Full training on cluster
+      context_length: 96 # Full context length
+      prediction_horizon: 24
+      k_initial: 10
+    dataset:
+      num_series: 100 # Full dataset size
+      series_length: 200
+
+# Auto-detection rules (checked in order)
+detection_rules:
+  # Check for SLURM environment (Compute Canada)
+  slurm:
+    env_vars: ["SLURM_JOB_ID", "SLURM_PROCID"]
+    config_override: "cluster"
+
+  # Check for specific cluster hostnames
+  hostname:
+    patterns: ["cedar", "graham", "beluga", "narval"]
+    config_override: "cluster"
+
+  # Check for GPU availability and specific patterns
+  gpu_detection:
+    min_gpu_memory_gb: 8 # Minimum GPU memory for cluster detection
+    config_override: "cluster"
+    fallback: "local" # Fall back to local if no suitable GPU
+
+# CPU optimizations (applied when using CPU)
+cpu_optimizations:
+  omp_num_threads: 4
+  mkl_num_threads: 4
+  numexpr_num_threads: 4
+  torch_num_threads: 4
+
+# GPU optimizations (applied when using GPU)
+gpu_optimizations:
+  cudnn_benchmark: true
+  cudnn_deterministic: false
+  mixed_precision: true # Enable for faster training on modern GPUs

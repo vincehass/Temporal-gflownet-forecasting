@@ -220,12 +220,29 @@ class TemporalGFNTrainer:
         self.best_val_loss = float('inf')
         self.best_val_metrics = {}
         
+        # W&B integration
+        try:
+            import wandb
+            self.wandb_run = wandb.run  # Get current active run
+            self.use_wandb = self.wandb_run is not None
+            if self.use_wandb:
+                self.logger.info(f"W&B logging enabled. Run: {self.wandb_run.name} ({self.wandb_run.id})")
+            else:
+                self.logger.info("W&B logging disabled (no active run)")
+        except ImportError:
+            self.wandb_run = None
+            self.use_wandb = False
+            self.logger.info("W&B not available (import failed)")
+        
         # Log device configuration
         self.logger.info(f"Trainer initialized with device: {self.device}")
         self.logger.info(f"Device type: {self.device.type}")
         if self.device_manager.is_gpu():
             memory_info = self.device_manager.get_memory_info()
-            self.logger.info(f"GPU Memory: {memory_info['free_memory'] / 1024**3:.1f} GB free")
+            if 'free_memory' in memory_info:
+                self.logger.info(f"GPU Memory: {memory_info['free_memory'] / 1024**3:.1f} GB free")
+            else:
+                self.logger.info(f"Device Memory: {memory_info.get('memory_info', 'Available')}")
     
     def switch_device(self, new_device: Union[str, torch.device]):
         """
@@ -281,7 +298,10 @@ class TemporalGFNTrainer:
         # Log initial memory usage if GPU
         if self.device_manager.is_gpu():
             memory_info = self.get_memory_usage()
-            self.logger.info(f"Initial GPU memory: {memory_info['allocated_memory'] / 1024**3:.2f} GB allocated")
+            if 'allocated_memory' in memory_info:
+                self.logger.info(f"Initial GPU memory: {memory_info['allocated_memory'] / 1024**3:.2f} GB allocated")
+            else:
+                self.logger.info(f"Initial device memory: {memory_info.get('memory_info', 'Available')}")
         
         for epoch in range(num_epochs):
             # Training
@@ -291,7 +311,10 @@ class TemporalGFNTrainer:
             if self.device_manager.is_gpu() and epoch % 5 == 0:
                 self.clear_gpu_cache()
                 memory_info = self.get_memory_usage()
-                self.logger.info(f"GPU memory after epoch {epoch}: {memory_info['allocated_memory'] / 1024**3:.2f} GB allocated")
+                if 'allocated_memory' in memory_info:
+                    self.logger.info(f"GPU memory after epoch {epoch}: {memory_info['allocated_memory'] / 1024**3:.2f} GB allocated")
+                else:
+                    self.logger.info(f"Device memory after epoch {epoch}: {memory_info.get('memory_info', 'Available')}")
             
             # Validation
             if val_loader is not None:
@@ -320,7 +343,10 @@ class TemporalGFNTrainer:
         if self.device_manager.is_gpu():
             self.clear_gpu_cache()
             final_memory = self.get_memory_usage()
-            self.logger.info(f"Final GPU memory: {final_memory['allocated_memory'] / 1024**3:.2f} GB allocated")
+            if 'allocated_memory' in final_memory:
+                self.logger.info(f"Final GPU memory: {final_memory['allocated_memory'] / 1024**3:.2f} GB allocated")
+            else:
+                self.logger.info(f"Final device memory: {final_memory.get('memory_info', 'Available')}")
     
     def _train_epoch(self, train_loader: DataLoader, epoch: int) -> Tuple[float, Dict[str, float]]:
         """
@@ -375,6 +401,15 @@ class TemporalGFNTrainer:
             
             # Increment global step
             self.global_step += 1
+            
+            # Log to W&B every log_interval steps
+            if self.use_wandb and self.wandb_run is not None and self.global_step % self.log_interval == 0:
+                self.wandb_run.log({
+                    'batch/loss': loss.item(),
+                    'batch/reward': metrics['reward'],
+                    'batch/k': self.env.k,
+                    'global_step': self.global_step
+                })
         
         # Compute epoch averages
         num_batches = len(train_loader)
@@ -391,6 +426,19 @@ class TemporalGFNTrainer:
             f"Reward: {epoch_rewards:.6f}, Entropy: {epoch_entropies:.6f}, "
             f"K: {self.env.k}"
         )
+        
+        # Log to W&B
+        if self.use_wandb and self.wandb_run is not None:
+            self.wandb_run.log({
+                'epoch': epoch,
+                'train/loss': epoch_loss,
+                'train/forward': epoch_forwards,
+                'train/backward': epoch_backwards,
+                'train/reward': epoch_rewards,
+                'train/entropy': epoch_entropies,
+                'train/k': self.env.k,
+                'global_step': self.global_step
+            })
         
         # Return average loss and metrics
         return epoch_loss, {
